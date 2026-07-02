@@ -1,0 +1,294 @@
+<!-- Output: html -->
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI 用法开发日志</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --danger: #f87171;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+    header {
+      padding: 24px;
+      text-align: center;
+      border-bottom: 1px solid #334155;
+    }
+    header h1 { margin: 0; font-size: 24px; }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px 16px;
+    }
+    .card {
+      background: var(--card);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+      border: 1px solid #334155;
+    }
+    label { display: block; margin: 10px 0 4px; color: var(--muted); font-size: 14px; }
+    input, textarea, select {
+      width: 100%;
+      padding: 10px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #0f172a;
+      color: var(--text);
+      font-size: 14px;
+    }
+    textarea { min-height: 100px; resize: vertical; }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .row > div { flex: 1; min-width: 140px; }
+    button {
+      cursor: pointer;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 14px;
+      background: var(--accent);
+      color: #0f172a;
+      font-weight: 600;
+    }
+    button.secondary { background: #334155; color: var(--text); }
+    button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
+    .toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+    .toolbar input, .toolbar select { flex: 1; }
+    .log-item h3 { margin: 0 0 4px; }
+    .meta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .tag {
+      display: inline-block;
+      background: #334155;
+      color: var(--accent);
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      margin-right: 6px;
+    }
+    .content { white-space: pre-wrap; }
+    .actions { margin-top: 12px; display: flex; gap: 8px; }
+    .empty { text-align: center; color: var(--muted); padding: 40px 0; }
+    .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🤖 AI 用法开发日志</h1>
+  </header>
+
+  <div class="container">
+    <div class="card">
+      <h2 id="formTitle">新增日志</h2>
+      <input type="hidden" id="editId" />
+      <label>标题</label>
+      <input id="title" placeholder="例如：用 RAG 优化客服问答" />
+      <div class="row">
+        <div>
+          <label>日期</label>
+          <input type="date" id="date" />
+        </div>
+        <div>
+          <label>标签（用逗号分隔）</label>
+          <input id="tags" placeholder="Prompt, Agent, RAG" />
+        </div>
+      </div>
+      <label>内容</label>
+      <textarea id="content" placeholder="记录你的思路、Prompt、遇到的问题和结论..."></textarea>
+      <div class="btn-group">
+        <button onclick="saveLog()">保存</button>
+        <button class="secondary" onclick="resetForm()">清空</button>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <input id="search" placeholder="🔍 搜索标题或内容..." oninput="render()" />
+      <select id="filterTag" onchange="render()">
+        <option value="">全部标签</option>
+      </select>
+    </div>
+
+    <div class="btn-group" style="margin-bottom:16px;">
+      <button class="secondary" onclick="exportData()">导出备份</button>
+      <button class="secondary" onclick="document.getElementById('importFile').click()">导入备份</button>
+      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)" />
+    </div>
+
+    <div id="list"></div>
+  </div>
+
+  <script>
+    const KEY = "ai_dev_logs";
+
+    function loadLogs() {
+      return JSON.parse(localStorage.getItem(KEY) || "[]");
+    }
+
+    function saveLogs(logs) {
+      localStorage.setItem(KEY, JSON.stringify(logs));
+    }
+
+    function saveLog() {
+      const title = document.getElementById("title").value.trim();
+      const date = document.getElementById("date").value || new Date().toISOString().slice(0, 10);
+      const tags = document.getElementById("tags").value
+        .split(",")
+        .map(t => t.trim())
+        .filter(Boolean);
+      const content = document.getElementById("content").value.trim();
+      const editId = document.getElementById("editId").value;
+
+      if (!title) {
+        alert("请填写标题");
+        return;
+      }
+
+      const logs = loadLogs();
+      if (editId) {
+        const idx = logs.findIndex(l => l.id === editId);
+        if (idx > -1) {
+          logs[idx] = { ...logs[idx], title, date, tags, content };
+        }
+      } else {
+        logs.push({
+          id: Date.now().toString(),
+          title, date, tags, content,
+          createdAt: new Date().toISOString()
+        });
+      }
+      saveLogs(logs);
+      resetForm();
+      render();
+    }
+
+    function resetForm() {
+      document.getElementById("editId").value = "";
+      document.getElementById("title").value = "";
+      document.getElementById("date").value = new Date().toISOString().slice(0, 10);
+      document.getElementById("tags").value = "";
+      document.getElementById("content").value = "";
+      document.getElementById("formTitle").textContent = "新增日志";
+    }
+
+    function editLog(id) {
+      const log = loadLogs().find(l => l.id === id);
+      if (!log) return;
+      document.getElementById("editId").value = log.id;
+      document.getElementById("title").value = log.title;
+      document.getElementById("date").value = log.date;
+      document.getElementById("tags").value = log.tags.join(", ");
+      document.getElementById("content").value = log.content;
+      document.getElementById("formTitle").textContent = "编辑日志";
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    }
+
+    function deleteLog(id) {
+      if (!confirm("确定删除这条日志吗？")) return;
+      saveLogs(loadLogs().filter(l => l.id !== id));
+      render();
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement("div");
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function updateTagFilter(logs) {
+      const select = document.getElementById("filterTag");
+      const current = select.value;
+      const allTags = [...new Set(logs.flatMap(l => l.tags))].sort();
+      select.innerHTML = '<option value="">全部标签</option>' +
+        allTags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
+      select.value = current;
+    }
+
+    function render() {
+      const logs = loadLogs();
+      updateTagFilter(logs);
+
+      const keyword = document.getElementById("search").value.toLowerCase();
+      const filterTag = document.getElementById("filterTag").value;
+
+      let filtered = logs
+        .filter(l =>
+          (l.title.toLowerCase().includes(keyword) ||
+           l.content.toLowerCase().includes(keyword)) &&
+          (!filterTag || l.tags.includes(filterTag))
+        )
+        .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
+
+      const list = document.getElementById("list");
+      if (filtered.length === 0) {
+        list.innerHTML = '<div class="empty">暂无日志，快来记录第一条吧！</div>';
+        return;
+      }
+
+      list.innerHTML = filtered.map(l => `
+        <div class="card log-item">
+          <h3>${escapeHtml(l.title)}</h3>
+          <div class="meta">📅 ${escapeHtml(l.date)}</div>
+          <div>${l.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
+          <div class="content">${escapeHtml(l.content)}</div>
+          <div class="actions">
+            <button class="secondary" onclick="editLog('${l.id}')">编辑</button>
+            <button class="danger" onclick="deleteLog('${l.id}')">删除</button>
+          </div>
+        </div>
+      `).join("");
+    }
+
+    function exportData() {
+      const data = JSON.stringify(loadLogs(), null, 2);
+      const blob = new Blob([data], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "ai-logs-backup.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importData(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try {
+          const imported = JSON.parse(e.target.result);
+          if (!Array.isArray(imported)) throw new Error("格式错误");
+          if (confirm("导入将合并到现有日志，是否继续？")) {
+            const logs = loadLogs();
+            const existingIds = new Set(logs.map(l => l.id));
+            imported.forEach(l => {
+              if (!existingIds.has(l.id)) logs.push(l);
+            });
+            saveLogs(logs);
+            render();
+            alert("导入成功！");
+          }
+        } catch (err) {
+          alert("导入失败：文件格式不正确");
+        }
+      };
+      reader.readAsText(file);
+      event.target.value = "";
+    }
+
+    resetForm();
+    render();
+  </script>
+</body>
+</html>
