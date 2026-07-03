@@ -127,15 +127,15 @@
 
   <script>
     // ====== 只需改这两行：填入你的两把钥匙 ======
-    const SUPABASE_URL = "https://qmzfibxynswzxpepdkru.supabase.co/rest/v1/";
-    const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFtemZpYnh5bnN3enhwZXBka3J1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODI5OTg2MDIsImV4cCI6MjA5ODU3NDYwMn0.qdc1KLIg6azeogR_6Z2Xe-ATPp_wvpj1_0QDULL1uT4";
+    const SUPABASE_URL = "在这里填你的 Project URL";
+    const SUPABASE_KEY = "在这里填你的 anon public key";
     // ==========================================
 
-    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     let cache = [];
 
     async function fetchLogs() {
-      const { data, error } = await supabase
+      const { data, error } = await db
         .from("logs")
         .select("*")
         .order("date", { ascending: false })
@@ -165,13 +165,13 @@
       }
 
       if (editId) {
-        const { error } = await supabase
+        const { error } = await db
           .from("logs")
           .update({ title, date, tags: tagsStr, content })
           .eq("id", editId);
         if (error) { alert("保存失败：" + error.message); return; }
       } else {
-        const { error } = await supabase
+        const { error } = await db
           .from("logs")
           .insert({ title, date, tags: tagsStr, content });
         if (error) { alert("保存失败：" + error.message); return; }
@@ -203,7 +203,7 @@
 
     async function deleteLog(id) {
       if (!confirm("确定删除这条日志吗？")) return;
-      const { error } = await supabase.from("logs").delete().eq("id", id);
+      const { error } = await db.from("logs").delete().eq("id", id);
       if (error) { alert("删除失败：" + error.message); return; }
       await reload();
     }
@@ -267,5 +267,3 @@
     resetForm();
     reload();
   </script>
-</body>
-</html>
