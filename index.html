@@ -1,10 +1,10 @@
-<!-- Output: html -->
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>AI 用法开发日志</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <style>
     :root {
       --bg: #0f172a;
@@ -82,11 +82,12 @@
     .actions { margin-top: 12px; display: flex; gap: 8px; }
     .empty { text-align: center; color: var(--muted); padding: 40px 0; }
     .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+    .status { text-align: center; color: var(--muted); padding: 20px 0; }
   </style>
 </head>
 <body>
   <header>
-    <h1>🤖 AI 用法开发日志</h1>
+    <h1>🤖 AI 用法开发日志（云同步版）</h1>
   </header>
 
   <div class="container">
@@ -120,33 +121,41 @@
       </select>
     </div>
 
-    <div class="btn-group" style="margin-bottom:16px;">
-      <button class="secondary" onclick="exportData()">导出备份</button>
-      <button class="secondary" onclick="document.getElementById('importFile').click()">导入备份</button>
-      <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)" />
-    </div>
-
     <div id="list"></div>
+    <div id="status" class="status">正在连接云端…</div>
   </div>
 
   <script>
-    const KEY = "ai_dev_logs";
+    // ====== 只需改这两行：填入你的两把钥匙 ======
+    const SUPABASE_URL = "在这里填你的 Project URL";
+    const SUPABASE_KEY = "在这里填你的 anon public key";
+    // ==========================================
 
-    function loadLogs() {
-      return JSON.parse(localStorage.getItem(KEY) || "[]");
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    let cache = [];
+
+    async function fetchLogs() {
+      const { data, error } = await supabase
+        .from("logs")
+        .select("*")
+        .order("date", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) {
+        document.getElementById("status").textContent = "❌ 连接失败：" + error.message;
+        return [];
+      }
+      document.getElementById("status").textContent = "";
+      return data || [];
     }
 
-    function saveLogs(logs) {
-      localStorage.setItem(KEY, JSON.stringify(logs));
-    }
-
-    function saveLog() {
+    async function saveLog() {
       const title = document.getElementById("title").value.trim();
       const date = document.getElementById("date").value || new Date().toISOString().slice(0, 10);
-      const tags = document.getElementById("tags").value
+      const tagsStr = document.getElementById("tags").value
         .split(",")
         .map(t => t.trim())
-        .filter(Boolean);
+        .filter(Boolean)
+        .join(",");
       const content = document.getElementById("content").value.trim();
       const editId = document.getElementById("editId").value;
 
@@ -155,22 +164,20 @@
         return;
       }
 
-      const logs = loadLogs();
       if (editId) {
-        const idx = logs.findIndex(l => l.id === editId);
-        if (idx > -1) {
-          logs[idx] = { ...logs[idx], title, date, tags, content };
-        }
+        const { error } = await supabase
+          .from("logs")
+          .update({ title, date, tags: tagsStr, content })
+          .eq("id", editId);
+        if (error) { alert("保存失败：" + error.message); return; }
       } else {
-        logs.push({
-          id: Date.now().toString(),
-          title, date, tags, content,
-          createdAt: new Date().toISOString()
-        });
+        const { error } = await supabase
+          .from("logs")
+          .insert({ title, date, tags: tagsStr, content });
+        if (error) { alert("保存失败：" + error.message); return; }
       }
-      saveLogs(logs);
       resetForm();
-      render();
+      await reload();
     }
 
     function resetForm() {
@@ -183,52 +190,54 @@
     }
 
     function editLog(id) {
-      const log = loadLogs().find(l => l.id === id);
+      const log = cache.find(l => String(l.id) === String(id));
       if (!log) return;
       document.getElementById("editId").value = log.id;
-      document.getElementById("title").value = log.title;
-      document.getElementById("date").value = log.date;
-      document.getElementById("tags").value = log.tags.join(", ");
-      document.getElementById("content").value = log.content;
+      document.getElementById("title").value = log.title || "";
+      document.getElementById("date").value = log.date || "";
+      document.getElementById("tags").value = log.tags || "";
+      document.getElementById("content").value = log.content || "";
       document.getElementById("formTitle").textContent = "编辑日志";
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
-    function deleteLog(id) {
+    async function deleteLog(id) {
       if (!confirm("确定删除这条日志吗？")) return;
-      saveLogs(loadLogs().filter(l => l.id !== id));
-      render();
+      const { error } = await supabase.from("logs").delete().eq("id", id);
+      if (error) { alert("删除失败：" + error.message); return; }
+      await reload();
     }
 
     function escapeHtml(str) {
       const div = document.createElement("div");
-      div.textContent = str;
+      div.textContent = str == null ? "" : str;
       return div.innerHTML;
     }
 
-    function updateTagFilter(logs) {
+    function tagsToArray(tagsStr) {
+      return (tagsStr || "").split(",").map(t => t.trim()).filter(Boolean);
+    }
+
+    function updateTagFilter() {
       const select = document.getElementById("filterTag");
       const current = select.value;
-      const allTags = [...new Set(logs.flatMap(l => l.tags))].sort();
+      const allTags = [...new Set(cache.flatMap(l => tagsToArray(l.tags)))].sort();
       select.innerHTML = '<option value="">全部标签</option>' +
         allTags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join("");
       select.value = current;
     }
 
     function render() {
-      const logs = loadLogs();
-      updateTagFilter(logs);
+      updateTagFilter();
 
       const keyword = document.getElementById("search").value.toLowerCase();
       const filterTag = document.getElementById("filterTag").value;
 
-      let filtered = logs
-        .filter(l =>
-          (l.title.toLowerCase().includes(keyword) ||
-           l.content.toLowerCase().includes(keyword)) &&
-          (!filterTag || l.tags.includes(filterTag))
-        )
-        .sort((a, b) => (b.date + b.createdAt).localeCompare(a.date + a.createdAt));
+      const filtered = cache.filter(l =>
+        ((l.title || "").toLowerCase().includes(keyword) ||
+         (l.content || "").toLowerCase().includes(keyword)) &&
+        (!filterTag || tagsToArray(l.tags).includes(filterTag))
+      );
 
       const list = document.getElementById("list");
       if (filtered.length === 0) {
@@ -240,7 +249,7 @@
         <div class="card log-item">
           <h3>${escapeHtml(l.title)}</h3>
           <div class="meta">📅 ${escapeHtml(l.date)}</div>
-          <div>${l.tags.map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
+          <div>${tagsToArray(l.tags).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
           <div class="content">${escapeHtml(l.content)}</div>
           <div class="actions">
             <button class="secondary" onclick="editLog('${l.id}')">编辑</button>
@@ -250,45 +259,13 @@
       `).join("");
     }
 
-    function exportData() {
-      const data = JSON.stringify(loadLogs(), null, 2);
-      const blob = new Blob([data], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "ai-logs-backup.json";
-      a.click();
-      URL.revokeObjectURL(url);
-    }
-
-    function importData(event) {
-      const file = event.target.files[0];
-      if (!file) return;
-      const reader = new FileReader();
-      reader.onload = e => {
-        try {
-          const imported = JSON.parse(e.target.result);
-          if (!Array.isArray(imported)) throw new Error("格式错误");
-          if (confirm("导入将合并到现有日志，是否继续？")) {
-            const logs = loadLogs();
-            const existingIds = new Set(logs.map(l => l.id));
-            imported.forEach(l => {
-              if (!existingIds.has(l.id)) logs.push(l);
-            });
-            saveLogs(logs);
-            render();
-            alert("导入成功！");
-          }
-        } catch (err) {
-          alert("导入失败：文件格式不正确");
-        }
-      };
-      reader.readAsText(file);
-      event.target.value = "";
+    async function reload() {
+      cache = await fetchLogs();
+      render();
     }
 
     resetForm();
-    render();
+    reload();
   </script>
 </body>
 </html>
