@@ -26,8 +26,19 @@
       padding: 24px;
       text-align: center;
       border-bottom: 1px solid #334155;
+      position: relative;
     }
     header h1 { margin: 0; font-size: 24px; }
+    .auth-bar {
+      position: absolute;
+      right: 16px;
+      top: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+    }
+    .auth-bar span { color: var(--muted); }
     .container {
       max-width: 900px;
       margin: 0 auto;
@@ -63,6 +74,7 @@
       color: #0f172a;
       font-weight: 600;
     }
+    button.small { padding: 6px 12px; font-size: 13px; }
     button.secondary { background: #334155; color: var(--text); }
     button.danger { background: transparent; color: var(--danger); border: 1px solid var(--danger); }
     .toolbar { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
@@ -83,15 +95,36 @@
     .empty { text-align: center; color: var(--muted); padding: 40px 0; }
     .btn-group { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
     .status { text-align: center; color: var(--muted); padding: 20px 0; }
+    .hidden { display: none !important; }
+    .login-box { max-width: 360px; margin: 0 auto; }
   </style>
 </head>
 <body>
   <header>
-    <h1>🤖 AI 用法开发日志（云同步版）</h1>
+    <h1>🤖 AI 用法开发日志</h1>
+    <div class="auth-bar">
+      <span id="userInfo"></span>
+      <button class="small secondary" id="loginBtn" onclick="showLogin()">登录</button>
+      <button class="small secondary hidden" id="logoutBtn" onclick="logout()">退出</button>
+    </div>
   </header>
 
   <div class="container">
-    <div class="card">
+    <!-- 登录框：默认隐藏 -->
+    <div class="card login-box hidden" id="loginCard">
+      <h2>登录以编辑</h2>
+      <label>邮箱</label>
+      <input id="email" type="email" placeholder="你的邮箱" />
+      <label>密码</label>
+      <input id="password" type="password" placeholder="你的密码" />
+      <div class="btn-group">
+        <button onclick="login()">登录</button>
+        <button class="secondary" onclick="hideLogin()">取消</button>
+      </div>
+    </div>
+
+    <!-- 编辑表单：只有登录后显示 -->
+    <div class="card hidden" id="editorCard">
       <h2 id="formTitle">新增日志</h2>
       <input type="hidden" id="editId" />
       <label>标题</label>
@@ -133,7 +166,58 @@
 
     const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
     let cache = [];
+    let isLoggedIn = false;
 
+    // ---------- 登录相关 ----------
+    function showLogin() {
+      document.getElementById("loginCard").classList.remove("hidden");
+    }
+    function hideLogin() {
+      document.getElementById("loginCard").classList.add("hidden");
+    }
+
+    async function login() {
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+      const { error } = await db.auth.signInWithPassword({ email, password });
+      if (error) {
+        alert("登录失败：" + error.message);
+        return;
+      }
+      document.getElementById("email").value = "";
+      document.getElementById("password").value = "";
+      hideLogin();
+      await checkAuth();
+    }
+
+    async function logout() {
+      await db.auth.signOut();
+      await checkAuth();
+    }
+
+    async function checkAuth() {
+      const { data } = await db.auth.getSession();
+      isLoggedIn = !!(data && data.session);
+      const editorCard = document.getElementById("editorCard");
+      const loginBtn = document.getElementById("loginBtn");
+      const logoutBtn = document.getElementById("logoutBtn");
+      const userInfo = document.getElementById("userInfo");
+
+      if (isLoggedIn) {
+        editorCard.classList.remove("hidden");
+        loginBtn.classList.add("hidden");
+        logoutBtn.classList.remove("hidden");
+        userInfo.textContent = "已登录";
+      } else {
+        editorCard.classList.add("hidden");
+        loginBtn.classList.remove("hidden");
+        logoutBtn.classList.add("hidden");
+        userInfo.textContent = "";
+      }
+      render();
+    }
+
+    // ---------- 日志读写 ----------
     async function fetchLogs() {
       const { data, error } = await db
         .from("logs")
@@ -241,7 +325,7 @@
 
       const list = document.getElementById("list");
       if (filtered.length === 0) {
-        list.innerHTML = '<div class="empty">暂无日志，快来记录第一条吧！</div>';
+        list.innerHTML = '<div class="empty">暂无日志。</div>';
         return;
       }
 
@@ -251,10 +335,11 @@
           <div class="meta">📅 ${escapeHtml(l.date)}</div>
           <div>${tagsToArray(l.tags).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join("")}</div>
           <div class="content">${escapeHtml(l.content)}</div>
+          ${isLoggedIn ? `
           <div class="actions">
             <button class="secondary" onclick="editLog('${l.id}')">编辑</button>
             <button class="danger" onclick="deleteLog('${l.id}')">删除</button>
-          </div>
+          </div>` : ``}
         </div>
       `).join("");
     }
@@ -264,6 +349,12 @@
       render();
     }
 
-    resetForm();
-    reload();
+    // ---------- 启动 ----------
+    (async function init() {
+      resetForm();
+      await checkAuth();
+      await reload();
+    })();
   </script>
+</body>
+</html>
